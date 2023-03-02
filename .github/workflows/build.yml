@@ -1,0 +1,85 @@
+name: Build Module
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: GitVersion
+        id: gitversion
+        uses: PoshCode/Actions/gitversion@v1
+      - name: Install-RequiredModules
+        uses: PoshCode/Actions/install-requiredmodules@v1
+      - name: Build Module
+        id: build
+        uses: PoshCode/actions/build-module@v1
+        with:
+          version: ${{ steps.gitversion.outputs.LegacySemVerPadded }}
+          destination: ${{github.workspace}}/Output
+      - name: Upload Build Output
+        id: build-artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: Modules
+          path: ${{github.workspace}}/Output
+      - name: Upload Tests
+        uses: actions/upload-artifact@v2
+        with:
+          name: PesterTests
+          path: ${{github.workspace}}/tests
+      - name: Publish Test Results
+        uses: zyborg/dotnet-tests-report@v1
+        with:
+          test_results_path: ${{github.workspace}}/tests/out/testResults.xml
+      - name: Upload RequiredModules.psd1
+        uses: actions/upload-artifact@v2
+        with:
+          name: RequiredModules
+          path: ${{github.workspace}}/RequiredModules.psd1
+      - name: Upload PSScriptAnalyzerSettings.psd1
+        uses: actions/upload-artifact@v2
+        with:
+          name: ScriptAnalyzer
+          path: ${{github.workspace}}/PSScriptAnalyzerSettings.psd1
+
+      - name: Release Module
+        uses: actions/create-release@v1
+        id: create_release
+        with:
+          draft: false
+          prerelease: true
+          release_name: ${{ steps.gitversion.outputs.LegacySemVerPadded }}
+          tag_name: ${{ steps.gitversion.outputs.LegacySemVerPadded }}
+          body_path: CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v3
+        id: download
+
+      - name: 'Echo download path'
+        run: echo ${{steps.download.outputs.download-path}}
+
+      - name: Zip Artifacts
+        uses: montudor/action-zip@v1
+        with:
+          args: zip -qq -r ${{github.workspace}}/Artifacts.zip ${{steps.download.outputs.download-path}}
+
+      - name: Upload Build Output to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{github.workspace}}/Artifacts.zip
+          asset_name: PSEdgeKeywords-Artifacts.zip
+          asset_content_type: application/zip
